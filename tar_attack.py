@@ -65,45 +65,48 @@ FLAGS = tf.flags.FLAGS
 
 
 
-def load_images_with_target_label(input_dir):
-    images = []
+def load_images_with_target_label(input_dir, batch_shape):
+    images = np.zeros(batch_shape)
     filenames = []
     target_labels = []
     idx = 0
+    batchsize = batch_shape[0]
 
     dev = pd.read_csv(os.path.join(input_dir, 'dev.csv'))
     filename2label = {dev.iloc[i]['filename']: dev.iloc[i]['targetedLabel'] for i in range(len(dev))}
     for filename in filename2label.keys():
-        image = imread(os.path.join(input_dir, filename), mode='RGB')
-        images.append(image)
+#        image = imread(os.path.join(input_dir, filename), mode='RGB')
+        image=Image.open(os.path.join(input_dir, filename))
+        image=np.array(image).astype(np.float) / 255.0
+        images[idx:,:,:] = image*2.0 - 1.0
         filenames.append(filename)
         target_labels.append(filename2label[filename])
         idx += 1
-        if idx == 11:
-            images = np.array(images)
+        if idx == FLAGS.batch_size:
             yield filenames, images, target_labels
-            filenames = []
-            images = []
+            images = np.zeros(batch_shape)
             target_labels = []
             idx = 0
     if idx > 0:
-        images = np.array(images)
+        images = np.zeros(batch_shape)
         yield filenames, images, target_labels
 
 
 
 def save_ijcai_images(images, filenames, output_dir):
     for i, filename in tqdm(enumerate(filenames)):
-        image = (((images[i] + 1.0) * 0.5) * 255.0).astype(np.uint8)
+        with tf.gfile.Open(os.path.join(output_dir, filename)) as f:
+            imsave(f, (images[i,:,:,:] + 1.0) * 0.5, format = 'png')
+       # image = (((images[i] + 1.0) * 0.5) * 255.0).astype(np.uint8)
         # resize back to [299, 299]
-        image = imresize(image, [299, 299])
+        #image = imresize(image, [299, 299])
         # label = labels[i]
         # output_sub_dir = os.path.join(output_dir, label)
         # if not os.path.exists(output_sub_dir):
         #     os.mkdir(output_sub_dir)
-        Image.fromarray(image).save(os.path.join(output_dir, filename), format='PNG')
+        #Image.fromarray(image).save(os.path.join(output_dir, filename), format='PNG')
         # print('{} image saved'.format(os.path.join(output_sub_dir, filename)))
-
+        
 
 def target_graph(x, target_class_input, i, x_max, x_min, grad):
     eps = 2.0 * FLAGS.max_epsilon / 255.0
@@ -115,7 +118,7 @@ def target_graph(x, target_class_input, i, x_max, x_min, grad):
             x, num_classes=num_classes, is_training=False, scope='InceptionV1')
 
     # rescale pixle range from [-1, 1] to [0, 255] for resnet_v1 and vgg's input
-    image = (((x + 1.0) * 0.5) * 255.0)
+    #image = (((x + 1.0) * 0.5) * 255.0)
     processed_imgs_res_v1_50 = preprocess_for_model(image, 'resnet_v1_50')
     with slim.arg_scope(resnet_v1.resnet_arg_scope()):
         logits_res_v1_50, end_points_res_v1_50 = resnet_v1.resnet_v1_50(
@@ -227,8 +230,8 @@ def target_attack(input_dir, output_dir):
     eps = 2.0 * FLAGS.max_epsilon / 255.0
     batch_shape = [FLAGS.batch_size, FLAGS.image_height, FLAGS.image_width, 3]
     with tf.Graph().as_default():
-        raw_inputs = tf.placeholder(tf.uint8, shape=[None, 224, 224, 3])
-        processed_imgs = preprocess_for_model(raw_inputs, 'inception_v1')
+        raw_inputs = tf.placeholder(tf.uint8, shape=batch_shape)
+       # processed_imgs = preprocess_for_model(raw_inputs, 'inception_v1')
 
         x_input = tf.placeholder(tf.float32, shape=batch_shape)
         x_max = tf.clip_by_value(x_input + eps, -1.0, 1.0)
@@ -252,7 +255,7 @@ def target_attack(input_dir, output_dir):
             s2.restore(sess, model_checkpoint_map['resnet_v1_50'])
             s3.restore(sess, model_checkpoint_map['vgg_16'])
 
-            for filenames, raw_images, target_labels in load_images_with_target_label(input_dir):
+            for filenames, raw_images, target_labels in load_images_with_target_label(input_dir, batch_shape):
                 processed_imgs_ = sess.run(processed_imgs, feed_dict={raw_inputs: raw_images})
                 adv_images = sess.run(x_adv, feed_dict={x_input: processed_imgs_, y: target_labels})
                 save_ijcai_images(adv_images, filenames, output_dir)
