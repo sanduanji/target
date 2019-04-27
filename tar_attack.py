@@ -4,6 +4,7 @@ import pandas as pd
 import tensorflow as tf
 import scipy.stats as st
 from PIL import Image
+from scipy.misc import imsave
 from scipy.misc import imread
 from scipy.misc import imresize
 from tensorflow.contrib.slim.nets import resnet_v1, inception, vgg
@@ -76,8 +77,10 @@ def load_images_with_target_label(input_dir, batch_shape):
     filename2label = {dev.iloc[i]['filename']: dev.iloc[i]['targetedLabel'] for i in range(len(dev))}
     for filename in filename2label.keys():
 #        image = imread(os.path.join(input_dir, filename), mode='RGB')
-        image=Image.open(os.path.join(input_dir, filename))
+        #image=Image.open(os.path.join(input_dir, filename))
         image=np.array(image).astype(np.float) / 255.0
+        image=imread(os.path.join(input_dir,filename), mode='RGB').astype(np.float) /255.0
+       # image = image.np.astype(uniot8)
         images[idx:,:,:] = image*2.0 - 1.0
         filenames.append(filename)
         target_labels.append(filename2label[filename])
